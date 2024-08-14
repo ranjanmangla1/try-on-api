@@ -29,6 +29,8 @@ idna==3.7
     # via requests
 loguru==0.7.2
     # via try-on-api
+pillow==10.4.0
+    # via try-on-api
 pydantic==2.8.2
     # via fastapi
     # via pydantic-settings
@@ -39,6 +41,8 @@ pydantic-settings==2.4.0
     # via try-on-api
 python-dotenv==1.0.1
     # via pydantic-settings
+python-multipart==0.0.9
+    # via try-on-api
 requests==2.32.3
     # via try-on-api
 sniffio==1.3.1

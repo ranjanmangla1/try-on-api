@@ -13,4 +13,3 @@ if __name__ == "__main__":
         forwarded_allow_ips="*",
         log_level="debug" if debug else "info",
     )
-

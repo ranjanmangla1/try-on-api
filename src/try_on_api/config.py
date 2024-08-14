@@ -12,10 +12,10 @@ class Settings(BaseSettings):
     DB_LOG_LEVEL: str = "ERROR"
     ENABLE_LOG_FILE: bool = False
     LOG_FILE_SIZE_IN_MB: int = 5
-    
+
     model_config = SettingsConfigDict(
         env_file=".env", extra="ignore", case_sensitive=True
     )
 
-Config = Settings()
 
+Config = Settings()
