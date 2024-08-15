@@ -2,9 +2,12 @@ import requests
 import base64
 import os
 from PIL import Image
-import io
+import aiohttp
+import aiofiles
+import time
 from loguru import logger
 from try_on_api.config import Config
+
 
 def apply_exif_rotation(image: Image.Image) -> Image.Image:
     """
@@ -23,103 +26,106 @@ def apply_exif_rotation(image: Image.Image) -> Image.Image:
     return image
 
 
-def heybeauty_tryon(user_img_path, cloth_img_path, category, output_path, caption=None):
-    logger.info('entered the ufunction')
+async def heybeauty_tryon(
+    user_img_path, cloth_img_path, category, output_path, caption=None
+):
+    logger.info("entered the ufunction")
     base_url = "https://heybeauty.ai/api"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {Config.API_KEY}",
     }
-    
+
     logger.info(f"Using API key: {Config.API_KEY[:5]}...{Config.API_KEY[-5:]}")
-    logger.info(f"Full headers: {headers}")
+    logger.info(f"Full headers: {headers}, category: {category}")
 
-
-    logger.info('creating task data')
+    logger.info("creating task data")
     create_task_data = {
         "user_img_name": os.path.basename(user_img_path),
         "cloth_img_name": os.path.basename(cloth_img_path),
-        "category": category,
+        "category": str(category),
     }
     if caption:
         create_task_data["caption"] = caption
-        
-    logger.info('hitting create-task endpoint')
 
-    response = requests.post(
-        f"{base_url}/create-task", headers=headers, json=create_task_data
+    logger.info(f"hitting create-task endpoint, create task data: {create_task_data}")
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            f"{base_url}/create-task", headers=headers, json=create_task_data
+        ) as response:
+            if response.status != 200:
+                raise Exception(f"Failed to create task: {await response.text()}")
+            task_data = (await response.json())["data"]
+
+    logger.info(
+        f"create_task_data: {create_task_data}, response: {response.text}, task_data: {task_data}"
     )
-    
-    logger.info(f"create_task_data: {create_task_data}, response: {response.text}")
-    if response.status_code != 200:
-        raise Exception(f"Failed to create task: {response.text}")
-
-    task_data = response.json()["data"]
+    # task_data = response.json()["data"]
     task_uuid = task_data["uuid"]
     user_img_url = task_data["user_img_url"]
     cloth_img_url = task_data["cloth_img_url"]
-    
-    logger.info(f"task_data: {task_data}, uuid: {task_uuid}, user_img_url: {user_img_url}, cloth_img_url: {cloth_img_url}")
 
-    with Image.open(user_img_path) as img:
-        img = apply_exif_rotation(img)
-        img_byte_arr = io.BytesIO()
-        img.save(img_byte_arr, format="JPEG")
-        img_byte_arr = img_byte_arr.getvalue()
-        requests.put(user_img_url, data=img_byte_arr)
+    logger.info(
+        f"task_data: {task_data}, \nuuid: {task_uuid}, user_img_url: {user_img_url}, \ncloth_img_url: {cloth_img_url}"
+    )
 
-    # Cloth image
-    with Image.open(cloth_img_path) as img:
-        img = apply_exif_rotation(img)
-        img_byte_arr = io.BytesIO()
-        img.save(img_byte_arr, format="JPEG")
-        img_byte_arr = img_byte_arr.getvalue()
-        requests.put(cloth_img_url, data=img_byte_arr)
+    async with aiofiles.open(user_img_path, "rb") as f:
+        user_img_data = await f.read()
+    async with aiohttp.ClientSession() as session:
+        async with session.put(user_img_url, data=user_img_data) as response:
+            # if response.status != 200:
+            #     raise Exception(f"Failed to upload user image: {await response.text()}")
+            print(f"response.status: {response.status}")
+
+    logger.info(f"uploaded image to {user_img_url}")
+
+    # Upload cloth image
+    async with aiofiles.open(cloth_img_path, "rb") as f:
+        cloth_img_data = await f.read()
+    async with aiohttp.ClientSession() as session:
+        async with session.put(cloth_img_url, data=cloth_img_data) as response:
+            if response.status != 200:
+                raise Exception(
+                    f"Failed to upload cloth image: {await response.text()}"
+                )
+            logger.info(f"response.status: {await response.text()}")
 
     submit_task_data = {"task_uuid": task_uuid}
     response = requests.post(
         f"{base_url}/submit-task", headers=headers, json=submit_task_data
     )
-    if response.status_code != 200:
-        raise Exception(f"Failed to submit task: {response.text}")
+    # if response.status_code != 200:
+    #     raise Exception(f"Failed to submit task: {response.text}")
+    logger.info(f"response of submit task: {submit_task_data}")
+
+    time.sleep(30)
 
     response = requests.post(
         f"{base_url}/get-task-info", headers=headers, json={"task_uuid": task_uuid}
     )
 
-    if response.status_code != 200:
-        raise Exception(f"Failed to query task: {response.text}")
-
     task_info = response.json()["data"]
-    status = task_info["status"]
 
-    if status == "successed":
-        # Download and save the output image
-        output_url = task_info["tryon_img_url"]
-        response = requests.get(output_url)
-        if response.status_code == 200:
-            with open(output_path, "wb") as f:
-                f.write(response.content)
-            with Image.open(output_path) as img:
-                width, height = img.size
+    print(f"task_info: {task_info}")
 
-                left = 0
-                upper = 0
-                right = width
-                lower = height - 50
+    output_url = task_info["tryon_img_url"]
+    logger.info(f"output url: {output_url}")
+    return output_url
+    # async with aiohttp.ClientSession() as session:
+    #     async with session.get(output_url) as response:
+    #         image_data = await response.read()
+    #         async with aiofiles.open(output_path, "wb") as f:
+    #             await f.write(image_data)
 
-                cropped_img = img.crop((left, upper, right, lower))
-                cropped_img.save(output_path)
+    #         # Process the image (crop, etc.)
+    #         # Note: Image processing with PIL is not async, so we keep it as is
+    #         with Image.open(output_path) as img:
+    #             width, height = img.size
+    #             cropped_img = img.crop((0, 0, width, height - 50))
+    #             cropped_img.save(output_path)
 
-            with open(output_path, "rb") as image_file:
-                img_base64 = base64.b64encode(image_file.read()).decode("utf-8")
-
-            return img_base64
-        else:
-            raise Exception(
-                f"Failed to download the output image: {response.status_code}"
-            )
-    elif status == "failed":
-        raise Exception(f"Try-On task failed: {task_info['err_msg']}")
-    else:
-        raise Exception("Unexpected error occurred")
+    #         async with aiofiles.open(output_path, "rb") as image_file:
+    #             img_base64 = base64.b64encode(await image_file.read()).decode("utf-8")
+    #         logger.info(f"Final Result: {img_base64}")
+    #         return img_base64

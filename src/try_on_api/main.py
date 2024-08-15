@@ -15,15 +15,15 @@ def create_app() -> FastAPI:
     perform_setup()
 
     app = FastAPI()
-    
+
     origins = [
         "http://localhost",
-        "http://sinpie.vercel.app/",
+        "http://localhost:3000",
+        "https://sinpie.vercel.app",
     ]
-    
-    # app.add_middleware(BaseHTTPMiddleware, dispatch=request_id_middleware)
+
     app.include_router(v1_router(), prefix="/api")
-    # app.add_exception_handler(HTTPException, custom_exception_handler)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
@@ -37,5 +37,5 @@ def create_app() -> FastAPI:
         return {"message": "Hello, World!"}
 
     logger.info("App created")
-    logger.info(f'Config: {Config.API_KEY}')
+    logger.info(f"Config: {Config.API_KEY}")
     return app
